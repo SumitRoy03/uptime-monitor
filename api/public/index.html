@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Uptime Monitor Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 text-gray-800 font-sans min-h-screen p-8">
+
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold mb-8 text-indigo-600">🟢 Uptime Monitor</h1>
+
+        <div class="bg-white p-6 rounded-lg shadow-md mb-8">
+            <h2 class="text-xl font-semibold mb-4">Add Target to Monitor</h2>
+            <form id="addUrlForm" class="flex gap-4">
+                <input type="text" id="urlInput" placeholder="https://example.com" 
+                       class="flex-1 border border-gray-300 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <button type="submit" 
+                        class="bg-indigo-600 text-white px-6 py-2 rounded-md hover:bg-indigo-700 transition">
+                    Add URL
+                </button>
+            </form>
+            <p id="errorMsg" class="text-red-500 mt-2 hidden"></p>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-md overflow-hidden">
+            <table class="w-full text-left">
+                <thead class="bg-gray-50 border-b">
+                    <tr>
+                        <th class="px-6 py-3 text-sm font-medium text-gray-500">ID</th>
+                        <th class="px-6 py-3 text-sm font-medium text-gray-500">URL</th>
+                        <th class="px-6 py-3 text-sm font-medium text-gray-500">Status</th>
+                    </tr>
+                </thead>
+                <tbody id="targetsTable" class="divide-y divide-gray-200">
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // Helper to construct API URL, handling the preview sandbox environment
+        const getApiUrl = (path) => {
+            if (window.location.protocol === 'blob:' || window.location.protocol === 'data:') {
+                return `http://localhost:3000${path}`;
+            }
+            return path;
+        };
+
+        // Fetch and display targets
+        async function fetchTargets() {
+            try {
+                const response = await fetch(getApiUrl('/targets'));
+                const data = await response.json();
+                const tableBody = document.getElementById('targetsTable');
+                tableBody.innerHTML = '';
+
+                data.forEach(target => {
+                    // Dynamically set the color based on the actual database status
+                    let statusColor = 'bg-gray-100 text-gray-800'; // Default gray for UNKNOWN
+                    if (target.status === 'UP') statusColor = 'bg-green-100 text-green-800';
+                    if (target.status === 'DOWN') statusColor = 'bg-red-100 text-red-800';
+                    
+                    const statusHtml = `<span class="${statusColor} text-xs font-semibold px-2.5 py-0.5 rounded">${target.status || 'UNKNOWN'}</span>`;
+                    
+                    // Extract the hostname to fetch the Favicon
+                    let hostname = '';
+                    try {
+                        hostname = new URL(target.url).hostname;
+                    } catch (e) {
+                        // Ignore parse errors if somehow invalid
+                    }
+                    
+                    // Use Google's reliable favicon service (with a fallback if image fails to load)
+                    const faviconUrl = hostname ? `https://www.google.com/s2/favicons?domain=${hostname}&sz=32` : '';
+                    const faviconImg = faviconUrl ? `<img src="${faviconUrl}" class="w-5 h-5 mr-3 rounded-sm flex-shrink-0" alt="icon" onerror="this.style.display='none'">` : '';
+
+                    tableBody.innerHTML += `
+                        <tr class="hover:bg-gray-50 transition-colors">
+                            <td class="px-6 py-4 text-sm text-gray-500">${target.id}</td>
+                            <td class="px-6 py-4">
+                                <div class="flex items-center text-sm font-medium text-gray-900">
+                                    ${faviconImg}
+                                    <a href="${target.url}" target="_blank" class="hover:text-indigo-600 hover:underline transition-colors">${target.url}</a>
+                                </div>
+                            </td>
+                            <td class="px-6 py-4">${statusHtml}</td>
+                        </tr>
+                    `;
+                });
+            } catch (err) {
+                console.error("API Error:", err);
+                const tableBody = document.getElementById('targetsTable');
+                tableBody.innerHTML = `<tr><td colspan="3" class="px-6 py-4 text-center text-red-500 text-sm">Cannot connect to API. Please ensure Docker is running on localhost:3000.</td></tr>`;
+            }
+        }
+
+        // Handle Form Submission
+        document.getElementById('addUrlForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const input = document.getElementById('urlInput');
+            const errorMsg = document.getElementById('errorMsg');
+            
+            // UX Improvement: Auto-prepend https:// if the user forgets it
+            let finalUrl = input.value.trim();
+            if (finalUrl && !/^https?:\/\//i.test(finalUrl)) {
+                finalUrl = 'https://' + finalUrl;
+            }
+
+            try {
+                const response = await fetch(getApiUrl('/targets'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: finalUrl }) // Send the formatted URL
+                });
+
+                if (response.ok) {
+                    input.value = '';
+                    errorMsg.classList.add('hidden');
+                    fetchTargets(); // Refresh the table
+                } else {
+                    errorMsg.textContent = await response.text();
+                    errorMsg.classList.remove('hidden');
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        });
+
+        // Load targets immediately, then refresh every 5 seconds
+        fetchTargets();
+        setInterval(fetchTargets, 5000);
+    </script>
+</body>
+</html>
