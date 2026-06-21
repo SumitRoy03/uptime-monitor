@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  # 1. The Database Layer
+  db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=uptime_db
+    volumes:
+      # Keep data persistent
+      - db_data:/var/lib/postgresql/data
+      # Inject our init script into the container's boot folder
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      # This guarantees Postgres is actually ready to accept connections
+      test: ["CMD-SHELL", "pg_isready -U postgres -d uptime_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 2. The API Layer
+  api:
+    build: ./api
+    ports:
+      - "3000:3000"
+    environment:
+      # Internal DNS uses "db" as the host
+      - DATABASE_URL=${DB_CONNECTION_STRING}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # 3. The Background Processing Layer
+  worker:
+    build: ./worker
+    environment:
+      - DATABASE_URL=${DB_CONNECTION_STRING}
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db_data:
